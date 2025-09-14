@@ -1,0 +1,18 @@
+{
+  "name": "vscode-config-package",
+  "version": "1.0.0",
+  "description": "Complete VSCode configuration package for WeWeb OpenStreetMap component development",
+  "files": [
+    ".vscode/",
+    ".eslintrc",
+    ".prettierrc",
+    "package.json",
+    "vscode-settings.json",
+    "extensions.json",
+    "README-VSCODE-SETUP.md"
+  ],
+  "scripts": {
+    "apply-config": "node apply-vscode-config.js",
+    "backup-config": "node backup-vscode-config.js"
+  }
+}
