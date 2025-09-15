@@ -89,5 +89,37 @@ export default {
       type: "Collection",
       bindable: true,
     },
+    showZoomLevel: {
+      label: {
+        en: "Show zoom level",
+      },
+      type: "OnOff",
+      defaultValue: true,
+    },
+    showDebug: {
+      label: {
+        en: "Show debug panel",
+      },
+      type: "OnOff",
+      defaultValue: false,
+    },
+    accuracyRadius: {
+      label: {
+        en: "User accuracy radius (km)",
+      },
+      type: "Number",
+      defaultValue: 20,
+      min: 1,
+      max: 80,
+      bindable: true,
+    },
+    useMiles: {
+      label: {
+        en: "Use miles for distance",
+      },
+      type: "OnOff",
+      defaultValue: false,
+      bindable: true,
+    },
   },
 };
