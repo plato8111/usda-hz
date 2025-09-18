@@ -1,9 +1,10 @@
 {
   "name": "OpenStreetMap",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "scripts": {
-    "build": "weweb build",
-    "serve": "weweb serve"
+    "build": "npx weweb build name=OpenStreetMap type=wwobject",
+    "serve": "npx weweb serve name=OpenStreetMap type=wwobject",
+    "rebuild": "rm -rf dist && npm run build"
   },
   "dependencies": {
     "leaflet": "^1.9.4",

@@ -125,12 +125,15 @@
     <div class="debug-panel" v-if="showDebug">
       <div class="debug-info">
         <h3>🗺️ OpenStreetMap Debug Info</h3>
+        <p><strong>Version: 0.0.2</strong> (Enhanced User Support)</p>
         <p>Zoom: {{ currentZoom }}</p>
         <p>Collection Markers: {{ collectionMarkers.length }}</p>
         <p>Dummy Markers: {{ dummyMarkers.length }}</p>
         <p>User Status: {{ userStatus }}</p>
         <p>Accuracy: {{ formatAccuracy(userPosition.accuracy) }}</p>
         <p>Radius: {{ formatDistance(accuracyRadius) }}</p>
+        <p>Data Source: {{ userDataSource }}</p>
+        <p>Name Field: {{ userNameField }}</p>
       </div>
     </div>
   </div>
@@ -181,6 +184,15 @@ export default {
       popupContentTemplate: 'default', // 'default', 'detailed', 'minimal'
       showCoordinatesInPopup: true,
       showMarkerNumber: true,
+      // User data configuration
+      userDataSource: 'collection',
+      userNameField: 'name',
+      userEmailField: 'email',
+      userStatusField: 'status',
+      userRoleField: 'role',
+      showUserEmail: true,
+      showUserStatus: true,
+      showUserRole: false,
     };
   },
   computed: {
@@ -199,6 +211,10 @@ export default {
   },
   mounted() {
     console.log('☢️ Initializing OpenStreetMap with dual map seamless panning');
+    
+    // Initialize user data configuration
+    this.initializeUserConfig();
+    
     this.initMap();
     this.currentZoom = this.content.zoom || 13;
     
@@ -596,7 +612,7 @@ export default {
       this.clearCollectionMarkers();
 
       // Always show dummy markers for testing
-      let items = this.dummyMarkers;
+      let items = this.content.collectionData || this.dummyMarkers;
       console.log('☢️ Items to display:', items.length);
 
       if (!Array.isArray(items) || this.isDestroyed) {
@@ -632,13 +648,8 @@ export default {
         if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
           console.log(`☢️ Creating marker ${index + 1} at [${lat}, ${lng}]`);
           
-          const marker = L.circleMarker([lat, lng], {
-            color: '#666666',
-            fillColor: '#999999',
-            fillOpacity: 0.7,
-            radius: 8,
-            weight: 2
-          });
+          const markerStyle = this.getUserMarkerStyle(item);
+          const marker = L.circleMarker([lat, lng], markerStyle);
 
           // Add marker to map
           try {
@@ -719,13 +730,8 @@ export default {
         if (cluster.items.length === 1) {
           // Single marker - show as individual
           const item = cluster.items[0];
-          const marker = L.circleMarker(cluster.center, {
-            color: '#666666',
-            fillColor: '#999999',
-            fillOpacity: 0.7,
-            radius: 8,
-            weight: 2
-          }).addTo(this.map);
+          const markerStyle = this.getUserMarkerStyle(item);
+          const marker = L.circleMarker(cluster.center, markerStyle).addTo(this.map);
 
           const popupContent = this.generatePopupContent(item, cluster.indices[0] + 1);
           const popup = this.createCustomPopup(popupContent);
@@ -826,13 +832,22 @@ export default {
     generatePopupContent(item, markerNumber) {
       let content = '';
       
+      // Dynamic field mapping based on configuration
+      const userName = this.getUserFieldValue(item, this.userNameField) || item.name || item.title || item.label || `User ${markerNumber}`;
+      const userEmail = this.showUserEmail ? (this.getUserFieldValue(item, this.userEmailField) || item.email || '') : '';
+      const userStatus = this.showUserStatus ? (this.getUserFieldValue(item, this.userStatusField) || item.status || '') : '';
+      const userRole = this.showUserRole ? (this.getUserFieldValue(item, this.userRoleField) || item.role || '') : '';
+      
       switch (this.popupContentTemplate) {
         case 'detailed':
           content = `
             <div style="min-width: ${this.popupWidth}px; max-width: ${this.popupWidth}px;">
-              <h3 style="margin: 0 0 8px 0; color: #333; font-size: 14px;">${item.name || item.title || item.label || `Location ${markerNumber}`}</h3>
-              ${this.showCoordinatesInPopup ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">Lat: ${item.latitude?.toFixed(4) || item.lat?.toFixed(4) || 'N/A'}</p>` : ''}
-              ${this.showCoordinatesInPopup ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">Lng: ${item.longitude?.toFixed(4) || item.lng?.toFixed(4) || 'N/A'}</p>` : ''}
+              <h3 style="margin: 0 0 8px 0; color: #333; font-size: 14px;">${userName}</h3>
+              ${userEmail ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📧 ${userEmail}</p>` : ''}
+              ${userRole ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">👤 ${userRole}</p>` : ''}
+              ${userStatus ? `<p style="margin: 4px 0; font-size: 12px; color: ${userStatus.toLowerCase() === 'online' ? '#00ff00' : '#ff6666'};">🟢 ${userStatus}</p>` : ''}
+              ${this.showCoordinatesInPopup ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📍 Lat: ${item.latitude?.toFixed(4) || item.lat?.toFixed(4) || 'N/A'}</p>` : ''}
+              ${this.showCoordinatesInPopup ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📍 Lng: ${item.longitude?.toFixed(4) || item.lng?.toFixed(4) || 'N/A'}</p>` : ''}
               ${this.showMarkerNumber ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">Marker #${markerNumber}</p>` : ''}
               <div style="border-top: 1px solid #eee; margin-top: 8px; padding-top: 8px;">
                 <small style="color: #888;">Click to close</small>
@@ -843,20 +858,41 @@ export default {
         case 'minimal':
           content = `
             <div style="min-width: 150px;">
-              <p style="margin: 0; font-size: 13px; color: #333;">${item.name || item.title || item.label || `Location ${markerNumber}`}</p>
+              <p style="margin: 0; font-size: 13px; color: #333; font-weight: 500;">${userName}</p>
+              ${userStatus ? `<p style="margin: 2px 0 0 0; font-size: 11px; color: ${userStatus.toLowerCase() === 'online' ? '#00aa00' : '#aa0000'};">${userStatus}</p>` : ''}
             </div>
           `;
           break;
         default: // 'default'
           content = `
             <div style="min-width: ${this.popupWidth}px;">
-              <h4 style="margin: 0 0 6px 0; color: #333; font-size: 13px;">${item.name || item.title || item.label || `Location ${markerNumber}`}</h4>
+              <h4 style="margin: 0 0 6px 0; color: #333; font-size: 13px;">${userName}</h4>
+              ${userEmail ? `<p style="margin: 2px 0; font-size: 11px; color: #666;">${userEmail}</p>` : ''}
+              ${userStatus ? `<p style="margin: 2px 0; font-size: 11px; color: ${userStatus.toLowerCase() === 'online' ? '#00aa00' : '#aa0000'};">${userStatus}</p>` : ''}
               ${this.showCoordinatesInPopup ? `<p style="margin: 3px 0; font-size: 11px; color: #666;">📍 ${item.latitude?.toFixed(3) || item.lat?.toFixed(3) || 'N/A'}, ${item.longitude?.toFixed(3) || item.lng?.toFixed(3) || 'N/A'}</p>` : ''}
             </div>
           `;
       }
       
       return content;
+    },
+
+    // Helper method to get user field value with fallback
+    getUserFieldValue(item, fieldName) {
+      if (!fieldName || !item) return '';
+      
+      // Support nested field access (e.g., "user.profile.name")
+      if (fieldName.includes('.')) {
+        const parts = fieldName.split('.');
+        let value = item;
+        for (const part of parts) {
+          value = value?.[part];
+          if (value === undefined || value === null) return '';
+        }
+        return value;
+      }
+      
+      return item[fieldName] || '';
     },
 
     generateClusterPopupContent(clusterCount) {
@@ -1063,6 +1099,56 @@ export default {
       console.log(`☢️ User accuracy circle radius updated: ${this.accuracyRadius} ${this.useMiles ? 'miles' : 'km'} (${radiusInMeters}m)`);
     },
     
+    // Initialize user configuration from content
+    initializeUserConfig() {
+      this.userDataSource = this.content.userDataSource || 'collection';
+      this.userNameField = this.content.userNameField || 'name';
+      this.userEmailField = this.content.userEmailField || 'email';
+      this.userStatusField = this.content.userStatusField || 'status';
+      this.userRoleField = this.content.userRoleField || 'role';
+      this.showUserEmail = this.content.showUserEmail !== undefined ? this.content.showUserEmail : true;
+      this.showUserStatus = this.content.showUserStatus !== undefined ? this.content.showUserStatus : true;
+      this.showUserRole = this.content.showUserRole !== undefined ? this.content.showUserRole : false;
+      
+      console.log('☢️ User configuration initialized:', {
+        userDataSource: this.userDataSource,
+        userNameField: this.userNameField,
+        userEmailField: this.userEmailField,
+        userStatusField: this.userStatusField,
+        userRoleField: this.userRoleField,
+        showUserEmail: this.showUserEmail,
+        showUserStatus: this.showUserStatus,
+        showUserRole: this.showUserRole
+      });
+    },
+    
+    // Get user-specific marker styling
+    getUserMarkerStyle(item) {
+      const userStatus = this.getUserFieldValue(item, this.userStatusField) || item.status || '';
+      const isOnline = userStatus.toLowerCase() === 'online';
+      const isUserData = this.userDataSource === 'users';
+      
+      if (isUserData) {
+        // User-specific styling
+        return {
+          color: isOnline ? '#00ff00' : '#ff6666',
+          fillColor: isOnline ? '#00ff00' : '#ff6666',
+          fillOpacity: 0.8,
+          radius: 8,
+          weight: 2
+        };
+      } else {
+        // Default styling for regular collection data
+        return {
+          color: '#666666',
+          fillColor: '#999999',
+          fillOpacity: 0.7,
+          radius: 8,
+          weight: 2
+        };
+      }
+    },
+    
     cleanup() {
       this.isDestroyed = true;
       
@@ -1166,6 +1252,39 @@ export default {
     'content.useMiles'() {
       this.useMiles = this.content.useMiles !== undefined ? this.content.useMiles : false;
       console.log(`☢️ Unit system changed to: ${this.useMiles ? 'miles' : 'kilometers'}`);
+    },
+    // New user data configuration watchers
+    'content.userDataSource'() {
+      this.userDataSource = this.content.userDataSource || 'collection';
+      console.log(`☢️ User data source changed to: ${this.userDataSource}`);
+    },
+    'content.userNameField'() {
+      this.userNameField = this.content.userNameField || 'name';
+      this.updateCollectionMarkers();
+    },
+    'content.userEmailField'() {
+      this.userEmailField = this.content.userEmailField || 'email';
+      this.updateCollectionMarkers();
+    },
+    'content.userStatusField'() {
+      this.userStatusField = this.content.userStatusField || 'status';
+      this.updateCollectionMarkers();
+    },
+    'content.userRoleField'() {
+      this.userRoleField = this.content.userRoleField || 'role';
+      this.updateCollectionMarkers();
+    },
+    'content.showUserEmail'() {
+      this.showUserEmail = this.content.showUserEmail !== undefined ? this.content.showUserEmail : true;
+      this.updateCollectionMarkers();
+    },
+    'content.showUserStatus'() {
+      this.showUserStatus = this.content.showUserStatus !== undefined ? this.content.showUserStatus : true;
+      this.updateCollectionMarkers();
+    },
+    'content.showUserRole'() {
+      this.showUserRole = this.content.showUserRole !== undefined ? this.content.showUserRole : false;
+      this.updateCollectionMarkers();
     },
   },
 };

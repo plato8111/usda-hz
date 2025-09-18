@@ -103,6 +103,78 @@ export default {
       type: "OnOff",
       defaultValue: false,
     },
+    // User-specific properties for database integration
+    userDataSource: {
+      label: {
+        en: "User Data Source",
+      },
+      type: "Select",
+      defaultValue: "collection",
+      bindable: true,
+      options: {
+        items: [
+          { value: "collection", label: { en: "Collection Data" } },
+          { value: "users", label: { en: "Database Users" } },
+          { value: "custom", label: { en: "Custom API" } }
+        ]
+      }
+    },
+    userNameField: {
+      label: {
+        en: "User Name Field",
+      },
+      type: "Text",
+      defaultValue: "name",
+      bindable: true,
+    },
+    userEmailField: {
+      label: {
+        en: "User Email Field",
+      },
+      type: "Text",
+      defaultValue: "email",
+      bindable: true,
+    },
+    userStatusField: {
+      label: {
+        en: "User Status Field",
+      },
+      type: "Text",
+      defaultValue: "status",
+      bindable: true,
+    },
+    userRoleField: {
+      label: {
+        en: "User Role Field",
+      },
+      type: "Text",
+      defaultValue: "role",
+      bindable: true,
+    },
+    showUserEmail: {
+      label: {
+        en: "Show user email in popup",
+      },
+      type: "OnOff",
+      defaultValue: true,
+      bindable: true,
+    },
+    showUserStatus: {
+      label: {
+        en: "Show user status in popup",
+      },
+      type: "OnOff",
+      defaultValue: true,
+      bindable: true,
+    },
+    showUserRole: {
+      label: {
+        en: "Show user role in popup",
+      },
+      type: "OnOff",
+      defaultValue: false,
+      bindable: true,
+    },
     accuracyRadius: {
       label: {
         en: "User accuracy radius (km)",
