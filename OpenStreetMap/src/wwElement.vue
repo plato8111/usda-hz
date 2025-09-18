@@ -1,6 +1,13 @@
 <template>
-  <div class="openstreetmap-element">
-    <div ref="mapContainer" class="leaflet-map-container" :style="mapStyle"></div>
+  <div class="openstreetmap-element" role="application" aria-label="Interactive OpenStreetMap">
+    <div 
+      ref="mapContainer" 
+      class="leaflet-map-container"
+      tabindex="0"
+      role="img"
+      :aria-label="`Interactive map centered at ${content.latitude || 50}, ${content.longitude || 10} with ${markerCount} markers`"
+      :style="mapStyle"
+    ></div>
     
     <!-- Clustering controls -->
     <div class="clustering-controls" v-if="true">
@@ -142,48 +149,39 @@
 <script>
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
 export default {
+  name: 'OpenStreetMap',
   props: {
-    content: { type: Object, required: true },
+    content: {
+      type: Object,
+      required: true,
+      validator(value) {
+        return value && typeof value === 'object';
+      }
+    },
   },
+  emits: ['update:content'],
   data() {
     return {
-      map: null,
       isDestroyed: false,
-      showDebug: false, // Use config property instead of hardcoded true
-      // Add back collection markers functionality
+      individualMarkersGroup: null,
+      markerClusterGroup: null,
+      // Core map data
       collectionMarkers: [],
-      dummyMarkers: [],
-      showDummyMarkers: true, // Force show dummy markers
       currentPositionMarker: null,
       accuracyCircle: null,
       zoomHandler: null,
-      initTimeout: null,
       currentZoom: null,
-      // Enhanced geolocation features
+      // User position data
       userPosition: {
-        latitude: 52.19,
-        longitude: 21.00,
+        latitude: null,
+        longitude: null,
         accuracy: null
       },
-      accuracyRadius: 1, // Default accuracy radius in km
-      useMiles: false, // Default to km
-      accuracySlider: 1, // Default slider value (1-50 km)
-      // Clustering properties
-      enableClustering: false,
-      clusterRadius: 10, // kilometers
-      clusterGroups: [],
-      visibleMarkers: 0,
-      // Map type properties
-      currentMapType: 'osm',
-      tileLayer: null,
-      // Popup customization properties
-      popupWidth: 250, // pixels
-      popupHeight: 120, // pixels
-      popupContentTemplate: 'default', // 'default', 'detailed', 'minimal'
-      showCoordinatesInPopup: true,
-      showMarkerNumber: true,
       // User data configuration
       userDataSource: 'collection',
       userNameField: 'name',
@@ -193,289 +191,68 @@ export default {
       showUserEmail: true,
       showUserStatus: true,
       showUserRole: false,
+      // Enhanced geolocation features
+      accuracyRadius: 1,
+      useMiles: false,
+      accuracySlider: 1,
+      // Clustering properties
+      enableClustering: false,
+      clusterRadius: 10,
+      clusterGroups: [],
+      visibleMarkers: 0,
+      // Map type properties
+      currentMapType: 'osm',
+      tileLayer: null,
+      // Popup customization properties
+      popupWidth: 250,
+      popupHeight: 120,
+      popupContentTemplate: 'default',
+      showCoordinatesInPopup: true,
+      showMarkerNumber: true,
+      // Internal state
+      resizeObserver: null,
+      dummyMarkers: [],
+      showDebug: false,
+      initTimeout: null,
     };
   },
+  created() {
+    // Store non-reactive Leaflet instances here
+    this.map = null;
+    this.individualMarkersGroup = null;
+    this.markerClusterGroup = null;
+    this.tileLayer = null;
+  },
   computed: {
-    mapStyle() {
-      return {
-        height: '100%',
-        width: '100%',
-      };
+    mapCenter() {
+      return this.map ? this.map.getCenter() : { lat: this.content.latitude || 50, lng: this.content.longitude || 10 };
     },
-    unit() {
-        return this.useMiles ? 'miles' : 'km';
+    mapZoom() {
+      return this.map ? this.map.getZoom() : (this.content.zoom || 13);
     },
-    maxSliderRange() {
-        return this.useMiles ? 50 : 50;
+    mapBounds() {
+      return this.map ? this.map.getBounds() : null;
     },
-  },
-  mounted() {
-    console.log('☢️ Initializing OpenStreetMap with dual map seamless panning');
-    
-    // Initialize user data configuration
-    this.initializeUserConfig();
-    
-    this.initMap();
-    this.currentZoom = this.content.zoom || 13;
-    
-    // Add back collection markers and user position functionality
-    this.$nextTick(() => {
-      this.initTimeout = setTimeout(() => {
-        if (this.map && !this.isDestroyed) {
-          this.$nextTick(() => {
-            this.initTimeout = setTimeout(() => {
-              if (this.map && !this.isDestroyed) {
-                this.generateDummyMarkers(); // Generate dummy markers first
-                this.setupZoomTracking();
-                this.generateDummyMarkers(); // Ensure markers are generated
-                this.updateCollectionMarkers(); // Then display them
-                this.getCurrentPosition();
-              }
-            }, 100);
-          });
-        }
-      }, 100);
-    });
-  },
-  beforeDestroy() {
-    this.cleanup();
-  },
-  beforeUnmount() {
-    this.cleanup();
-  },
-  methods: {
-    initMap() {
-      console.log('☢️ Creating OpenStreetMap with seamless panning');
-      
-      // Check if map already exists and clean it up first
-      if (this.map) {
-        console.log('☢️ Cleaning up existing map before creating new one');
-        this.cleanup();
-      }
-      
-      // Ensure the DOM element exists before proceeding
-      this.$nextTick(() => {
-        if (this.$refs.mapContainer) {
-          // Clear any existing content but don't interfere with Leaflet's cleanup
-          if (this.$refs.mapContainer._leaflet_id) {
-            console.log('☢️ Map container already has Leaflet instance, cleaning up');
-            try {
-              // Try to remove existing Leaflet instance properly
-              const existingMap = this.$refs.mapContainer._leaflet_map;
-              if (existingMap && existingMap.remove) {
-                existingMap.remove();
-              }
-            } catch (e) {
-              console.warn('⚠️ Could not clean up existing Leaflet instance:', e);
-            }
-          }
-          
-          // Create single map with world copy jump for seamless panning
-          try {
-            this.createSingleMap();
-            
-            // Only setup tile layer if map was created successfully
-            if (this.map) {
-              this.setupTileLayer();
-              console.log('☢️ Map created successfully with Leaflet native controls');
-            } else {
-              console.error('❌ Map creation failed - map is null');
-              // Don't retry immediately to avoid infinite loops
-              setTimeout(() => {
-                if (!this.map) this.initMap();
-              }, 500);
-            }
-          } catch (error) {
-            console.error('❌ Error during map creation:', error);
-            // Don't retry immediately to avoid infinite loops
-            setTimeout(() => {
-              if (!this.map) this.initMap();
-            }, 500);
-          }
-        } else {
-          console.error('❌ Map container not found in DOM');
-          // Don't retry immediately to avoid infinite loops
-          setTimeout(() => {
-            if (!this.map) this.initMap();
-          }, 500);
-        }
-      });
+    userLatitude() {
+      return this.userPosition.latitude;
     },
-
-    createDualMaps() {
-      console.log('☢️ Creating dual maps for seamless panning');
-      
-      // Ensure DOM elements exist before creating maps
-      if (!this.$refs.mapContainer1 || !this.$refs.mapContainer2) {
-        console.error('❌ Map container references not found');
-        // Fallback to single map
-        this.createSingleMap();
-        return;
-      }
-
-      // Create primary map (center)
-      this.maps = [];
-      
-      const mapOptions = {
-        dragging: true, // Enable Leaflet's native dragging
-        scrollWheelZoom: true,
-        doubleClickZoom: true,
-        touchZoom: true,
-        zoomControl: true,
-        attributionControl: true,
-        zoomAnimation: true, // Enable animations for better UX
-        fadeAnimation: true,
-        markerZoomAnimation: true,
-        boxZoom: true,
-        keyboard: true,
-        tap: true,
-        trackResize: true,
-        closePopupOnClick: true,
-        bounceAtZoomLimits: true,
-        worldCopyJump: true, // Enable world copy jump for seamless panning
-        maxBoundsViscosity: 0.0,
-        crs: L.CRS.EPSG3857,
-        maxBounds: [[-90, -180], [90, 180]],
-        noWrap: false // Allow wrapping for dual map effect
-      };
-
-      try {
-        // Create center map
-        const centerMap = L.map(this.$refs.mapContainer1, mapOptions).setView(
-          [this.content.latitude || 50, this.content.longitude || 10],
-          this.content.zoom || 3
-        );
-        this.maps.push(centerMap);
-
-        // Create left and right duplicate maps
-        const leftMap = L.map(this.$refs.mapContainer2, mapOptions).setView(
-          [this.content.latitude || 50, this.content.longitude || 10 - 360], // Shifted left by 360 degrees
-          this.content.zoom || 3
-        );
-        this.maps.push(leftMap);
-
-        // Set up tile layers for all maps
-        this.maps.forEach((map, index) => {
-          this.setupTileLayerForMap(map, index);
-        });
-
-        // Set the primary map (center one)
-        this.map = this.maps[0];
-        
-        console.log(`☢️ Created ${this.maps.length} maps for seamless panning`);
-        
-        // Set up synchronization between maps
-        this.setupMapSynchronization();
-        
-        // Let Leaflet handle dragging naturally - no manual override needed
-        console.log('☢️ Dual maps created - Leaflet will handle dragging naturally');
-        
-      } catch (error) {
-        console.error('❌ Error creating dual maps:', error);
-        // Fallback to single map
-        this.createSingleMap();
-      }
+    userLongitude() {
+      return this.userPosition.longitude;
     },
-
-    createSingleMap() {
-      console.log('☢️ Creating single map with seamless panning');
-      
-      // Ensure DOM element exists and is properly sized
-      if (!this.$refs.mapContainer) {
-        throw new Error('Map container not found in DOM');
-      }
-      
-      // Check if container already has a Leaflet map
-      const container = this.$refs.mapContainer;
-      if (container._leaflet_id) {
-        console.warn('⚠️ Map container already has Leaflet instance, cleaning up first');
-        try {
-          // Try to get the existing map and remove it properly
-          const existingMap = container._leaflet_map || window[container._leaflet_id];
-          if (existingMap && existingMap.remove) {
-            existingMap.remove();
-            console.log('☢️ Removed existing Leaflet map');
-          }
-        } catch (e) {
-          console.warn('⚠️ Could not remove existing Leaflet map:', e);
-        }
-        
-        // Clear the container completely
-        container.innerHTML = '';
-        delete container._leaflet_id;
-        delete container._leaflet_map;
-      }
-      
-      // Ensure container has dimensions
-      if (container.offsetWidth === 0 || container.offsetHeight === 0) {
-        console.warn('⚠️ Map container has zero dimensions, waiting...');
-        setTimeout(() => this.createSingleMap(), 100);
-        return;
-      }
-      
-      // Create single map with world copy jump enabled
-      const mapOptions = {
-        dragging: true, // Enable Leaflet's native dragging
-        scrollWheelZoom: true,
-        doubleClickZoom: true,
-        touchZoom: true,
-        zoomControl: true,
-        attributionControl: true,
-        zoomAnimation: true, // Enable animations for better UX
-        fadeAnimation: true,
-        markerZoomAnimation: true,
-        boxZoom: true,
-        keyboard: true,
-        tap: true,
-        trackResize: true,
-        closePopupOnClick: true,
-        bounceAtZoomLimits: true,
-        worldCopyJump: true, // Enable world copy jump for seamless panning
-        maxBoundsViscosity: 0.0,
-        crs: L.CRS.EPSG3857,
-        maxBounds: [[-90, -180], [90, 180]],
-        noWrap: false // Allow wrapping for seamless experience
-      };
-
-      try {
-        // Force container to have proper dimensions
-        container.style.width = '100%';
-        container.style.height = '100%';
-        container.style.position = 'relative';
-        
-        // Create a fresh container element to avoid Leaflet conflicts
-        const freshContainer = container.cloneNode(true);
-        container.parentNode.replaceChild(freshContainer, container);
-        
-        this.map = L.map(freshContainer, mapOptions).setView(
-          [this.content.latitude || 50, this.content.longitude || 10],
-          this.content.zoom || 3
-        );
-        
-        // Set up tile layer
-        this.setupTileLayer();
-        
-        console.log('☢️ Map created successfully with dimensions:', {
-          width: freshContainer.offsetWidth,
-          height: freshContainer.offsetHeight
-        });
-        
-        // Ensure dragging is properly enabled
-        if (this.map.dragging) {
-          this.map.dragging.enable();
-          console.log('☢️ Map dragging enabled');
-        }
-        
-        // Let Leaflet handle dragging naturally - no manual override needed
-        console.log('☢️ Map created - Leaflet will handle dragging naturally');
-        
-      } catch (error) {
-        console.error('❌ Error creating single map:', error);
-        throw error;
-      }
+    userAccuracy() {
+      return this.userPosition.accuracy;
     },
-
-    setupTileLayerForMap(map, index) {
+    markerCount() {
+      return this.collectionMarkers.length;
+    },
+    visibleMarkerCount() {
+      return this.collectionMarkers.length;
+    },
+    // Map state properties
+    isMapReady() {
+      return !!this.map && !this.isDestroyed;
+    },
+    currentTileUrl() {
       const tileUrls = {
         osm: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
         satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
@@ -483,66 +260,224 @@ export default {
         dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
         light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
       };
-
-      const attributions = {
-        osm: '© OpenStreetMap contributors',
-        satellite: '© Esri, © OpenStreetMap contributors',
-        terrain: '© OpenTopoMap, © OpenStreetMap contributors',
-        dark: '© CARTO, © OpenStreetMap contributors',
-        light: '© CARTO, © OpenStreetMap contributors'
+      return tileUrls[this.content.mapType || 'osm'];
+    },
+    unit() {
+      return this.useMiles ? 'miles' : 'km';
+    },
+    maxSliderRange() {
+      return this.useMiles ? 50 : 50;
+    },
+    mapStyle() {
+      return {
+        height: '100%',
+        width: '100%',
       };
-
-      const currentUrl = tileUrls[this.currentMapType] || tileUrls.osm;
-      const currentAttribution = attributions[this.currentMapType] || attributions.osm;
-
-      const tileLayer = L.tileLayer(currentUrl, {
-        attribution: currentAttribution,
-        maxZoom: 19,
-        noWrap: false, // Allow wrapping for seamless experience
-        bounds: [[-90, -180], [90, 180]]
-      }).addTo(map);
-
-      console.log(`☢️ Tile layer set for map ${index}: ${this.currentMapType}`);
+    },
+  },
+  mounted() {
+    // Initialize user data configuration
+    this.initializeUserConfig();
+    
+    // Simple initialization for WeWeb
+    this.$nextTick(this.observeContainer);
+    
+    // DEBUG: Expose component globally for console debugging
+    if (typeof window !== 'undefined') {
+      window.mapComponent = this;
+      console.log('🗺️ Map component exposed as window.mapComponent');
+      console.log('🔧 Try: window.mapComponent.forceEnableDragging()');
+      console.log('🛡️ Try: window.mapComponent.handleWeWebInterference()');
       
-      return tileLayer;
+      // Auto-detect WeWeb environment
+      if (window.parent !== window) {
+        console.log('🎯 WeWeb iframe detected - applying interference fixes...');
+        setTimeout(() => {
+          if (this.map) {
+            this.handleWeWebInterference();
+          }
+        }, 500);
+      }
+    }
+  },
+  beforeUnmount() {
+    this.cleanup();
+  },
+  methods: {
+    observeContainer() {
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+      }
+
+      const container = this.$refs.mapContainer;
+      if (!container) return;
+
+      // Check for ResizeObserver support
+      if (typeof ResizeObserver === 'undefined') {
+        console.warn('ResizeObserver not supported, falling back to manual initialization');
+        // Fallback for older browsers
+        setTimeout(() => {
+          if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+            this.initializeMap();
+          }
+        }, 100);
+        return;
+      }
+
+      this.resizeObserver = new ResizeObserver((entries) => {
+        if (container.offsetWidth > 0 && container.offsetHeight > 0) {
+          this.initializeMap();
+          // Once initialized, we don't need to observe anymore.
+          // This prevents re-initialization loops.
+          this.resizeObserver.disconnect();
+        }
+      });
+      this.resizeObserver.observe(container);
+    },
+    
+    // Rename to avoid potential conflicts with WeWeb's processing
+    initializeMap() {
+      // AGGRESSIVE cleanup first
+      if (this.map) {
+        try {
+          this.map.remove();
+          this.map = null;
+        } catch (e) {
+          console.warn('Error removing existing map:', e);
+        }
+      }
+
+      // Add a guard to prevent re-initialization if the map is already valid.
+      if (this.map && this.map.getContainer()) {
+        console.log('🗺️ Map already initialized. Skipping re-initialization.');
+        return;
+      }
+      
+      // Clear container completely
+      const container = this.$refs.mapContainer;
+      if (container) {
+        container.innerHTML = '';
+        // Remove any Leaflet-specific properties
+        delete container._leaflet_id;
+        delete container._leaflet;
+      }
+      
+      this.currentZoom = this.content.zoom || 13;
+
+      // Simple initialization - no complex nesting
+      if (this.$refs.mapContainer) {
+        // Create single map with world copy jump for seamless panning
+        try {
+          this.createSingleMap();
+          
+          // Only setup tile layer if map was created successfully
+          if (this.map) {
+            this.setupTileLayer();
+          } else {
+            console.error('❌ Map creation failed - map is null');
+          }
+        } catch (error) {
+          console.error('❌ Error during map creation:', error);
+        }
+      } else {
+        console.error('❌ Map container not found in DOM');
+      }
     },
 
-    setupMapSynchronization() {
-      // Synchronize view and interactions between maps
-      if (!this.maps || this.maps.length < 2) return;
+    createSingleMap() {
+      // Ensure DOM element exists and is properly sized
+      if (!this.$refs.mapContainer) {
+        console.error('❌ Map container not found in DOM');
+        return; // Don't throw error, just return
+      }
       
-      this.maps.forEach((map, index) => {
-        if (index === 0) return; // Skip primary map
+      // Check if container already has a Leaflet map
+      const container = this.$refs.mapContainer;
+      
+      // CRITICAL: Clear any existing map instance first
+      if (container._leaflet_id && this.map) {
+        this.map.remove();
+        this.map = null;
+      } else if (container._leaflet_id) {
+        // If map instance is gone but leaflet id remains
+        delete container._leaflet_id;
+      }
+      
+      // Ensure container has dimensions
+      if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+        console.warn('Map container has zero dimensions. Initialization might fail.');
+        return;
+      }
+      
+      // Force container styles immediately
+      container.style.width = '100%';
+      container.style.height = '100%';
+      container.style.position = 'relative';
+      container.style.outline = 'none';
+      container.style.pointerEvents = 'auto';
+      container.style.touchAction = 'pan-x pan-y';
+      
+      // Define the boundaries to prevent panning into the grey area
+      const corner1 = L.latLng(-85.0511, -180);
+      const corner2 = L.latLng(85.0511, 180);
+      const maxBounds = L.latLngBounds(corner1, corner2);
+
+      // Simplified map options - remove potential conflicting settings
+      const mapOptions = {
+        dragging: true,
+        touchZoom: true,
+        doubleClickZoom: true,
+        scrollWheelZoom: true,
+        boxZoom: true,
+        keyboard: true,
+        zoomControl: true,
+        attributionControl: true,
+        worldCopyJump: true, // Prevents multiple worlds from showing at once.
+        maxBounds: maxBounds, // Prevent panning into the grey area.
+        maxBoundsViscosity: 1.0 // Make the bounds solid.
+      };
+
+      try {
+        // Create the map with simplified options
+        this.map = L.map(container, mapOptions).setView(
+          [this.content.latitude || 50, this.content.longitude || 10],
+          this.content.zoom || 3
+        );
         
-        // Sync zoom changes with error handling
-        map.on('zoomend', () => {
-          try {
-            const zoom = map.getZoom();
-            this.maps.forEach((otherMap, otherIndex) => {
-              if (otherIndex !== index && otherMap.getZoom() !== zoom) {
-                otherMap.setZoom(zoom, { animate: false });
-              }
-            });
-          } catch (error) {
-            console.warn('Error synchronizing zoom:', error);
+        // FORCE enable drag after creation with delay
+        setTimeout(() => {
+          if (this.map && this.map.dragging) {
+            this.map.dragging.enable();
+            
+            // Force re-enable all handlers with explicit zoom focus
+            if (this.map.touchZoom) this.map.touchZoom.enable();
+            if (this.map.doubleClickZoom) this.map.doubleClickZoom.enable();
+            if (this.map.scrollWheelZoom) this.map.scrollWheelZoom.enable();
+            if (this.map.boxZoom) this.map.boxZoom.enable();
+            if (this.map.keyboard) this.map.keyboard.enable();
+            
+            // Explicitly ensure zoom controls work
+            const zoomControl = this.map.zoomControl;
+            if (zoomControl) {
+              // Re-add zoom control to ensure it's working
+              this.map.removeControl(zoomControl);
+              this.map.addControl(zoomControl);
+            }
+            
+            console.log('🗺️ All map handlers force-enabled with zoom priority');
+            console.log('Drag enabled:', this.map.dragging.enabled());
+            console.log('Scroll zoom enabled:', this.map.scrollWheelZoom.enabled());
+            console.log('Double click zoom enabled:', this.map.doubleClickZoom.enabled());
           }
-        });
+        }, 100);
         
-        // Sync move events with error handling
-        map.on('moveend', () => {
-          try {
-            const center = map.getCenter();
-            this.maps.forEach((otherMap, otherIndex) => {
-              if (otherIndex !== index) {
-                const offset = (otherIndex - index) * 360; // Calculate longitude offset
-                otherMap.setView([center.lat, center.lng + offset], center.zoom, { animate: false });
-              }
-            });
-          } catch (error) {
-            console.warn('Error synchronizing map position:', error);
-          }
-        });
-      });
+        this.setupZoomTracking();
+        this.updateCollectionMarkers();
+        this.getCurrentPosition();
+      } catch (error) {
+        console.error('❌ Error creating single map:', error);
+        return;
+      }
     },
 
     setupTileLayer() {
@@ -561,37 +496,29 @@ export default {
         }
       }
 
-      const tileUrls = {
-        osm: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        satellite: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        terrain: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-        dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-      };
-
       const attributions = {
         osm: '© OpenStreetMap contributors',
         satellite: '© Esri, © OpenStreetMap contributors',
         terrain: '© OpenTopoMap, © OpenStreetMap contributors',
         dark: '© CARTO, © OpenStreetMap contributors',
-        light: '© CARTO, © OpenStreetMap contributors'
+        light: '© CARTO, © OpenStreetMap contributors',
       };
 
-      const currentUrl = tileUrls[this.currentMapType] || tileUrls.osm;
-      const currentAttribution = attributions[this.currentMapType] || attributions.osm;
+      const currentAttribution = attributions[this.content.mapType || 'osm'] || attributions.osm;
 
       try {
-        this.tileLayer = L.tileLayer(currentUrl, {
+        this.tileLayer = L.tileLayer(this.currentTileUrl, {
           attribution: currentAttribution,
           maxZoom: 19,
-          noWrap: true, // Prevent tile wrapping
-          bounds: [[-90, -180], [90, 180]] // Limit tiles to single world
+          noWrap: false // Allow wrapping for seamless experience
         }).addTo(this.map);
-
-        console.log(`☢️ Tile layer set to: ${this.currentMapType}`);
       } catch (error) {
-        console.error('❌ Error setting up tile layer:', error);
-        throw error;
+        console.error('❌ Error setting up tile layer, falling back to OSM:', error);
+        this.tileLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '© OpenStreetMap contributors',
+          maxZoom: 19,
+          noWrap: false
+        }).addTo(this.map);
       }
     },
 
@@ -600,24 +527,31 @@ export default {
       this.setupTileLayer();
     },
     
-    
     // Add back collection markers functionality
     updateCollectionMarkers() {
       console.log('☢️ Starting updateCollectionMarkers...');
-      console.log('Dummy markers count:', this.dummyMarkers.length);
       console.log('Map exists:', !!this.map);
       console.log('Is destroyed:', this.isDestroyed);
       console.log('Clustering enabled:', this.enableClustering);
       
+      // Guard against race conditions
+      if (!this.map || this.isDestroyed) {
+        console.warn('Cannot update markers: map not ready or component destroyed');
+        return;
+      }
+
       this.clearCollectionMarkers();
 
-      // Always show dummy markers for testing
-      let items = this.content.collectionData || this.dummyMarkers;
-      console.log('☢️ Items to display:', items.length);
+      // Use the real data from the collection provided via props.
+      const items = this.content.collectionData || this.dummyMarkers;
 
       if (!Array.isArray(items) || this.isDestroyed) {
         console.log('☢️ Skipping markers - no items array or destroyed');
         return;
+      }
+
+      if (items.length > 500) {
+        console.warn('Large dataset detected; consider enabling clustering or reducing markers');
       }
 
       try {
@@ -627,210 +561,96 @@ export default {
           this.createIndividualMarkers(items);
         }
       } catch (error) {
-        console.warn('❌ Error creating collection markers:', error);
-        console.error('☢️ Full error details:', error);
+        console.error('❌ Error creating collection markers:', error);
       }
     },
 
     createIndividualMarkers(items) {
-      console.log('☢️ Creating individual markers for', items.length, 'items');
+      this.individualMarkersGroup = L.featureGroup().addTo(this.map);
+
       items.forEach((item, index) => {
         if (!item || typeof item !== 'object') {
-          console.log('☢️ Skipping invalid item at index', index);
           return;
         }
 
         const lat = item.latitude || item.lat || item.y || item.latitud;
         const lng = item.longitude || item.lng || item.x || item.longitud;
 
-        console.log(`☢️ Processing item ${index + 1}: lat=${lat}, lng=${lng}`);
-
         if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
-          console.log(`☢️ Creating marker ${index + 1} at [${lat}, ${lng}]`);
-          
+
           const markerStyle = this.getUserMarkerStyle(item);
           const marker = L.circleMarker([lat, lng], markerStyle);
 
-          // Add marker to map
+          this.individualMarkersGroup.addLayer(marker);
+          const popupContent = this.generatePopupContent(item, index + 1);
+          const popup = this.createCustomPopup(popupContent);
           try {
-            marker.addTo(this.map);
-            console.log(`✅ Added marker ${index + 1} to map`);
+            marker.bindPopup(popup);
           } catch (error) {
-            console.error(`❌ Failed to add marker ${index + 1} to map:`, error);
-            return;
+            console.warn('Error binding popup to individual marker:', error);
+            marker.bindPopup(popupContent);
           }
+
+          this.collectionMarkers.push(marker);
+        } else {
+          console.warn(`Skipping item at index ${index} due to invalid coordinates.`);
+        }
+      });
+    },
+
+    createClusteredMarkers(items) {
+      // Use the efficient leaflet.markercluster plugin
+      this.markerClusterGroup = L.markerClusterGroup({
+        // Options to improve UX
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        zoomToBoundsOnClick: true,
+      });
+
+      items.forEach((item, index) => {
+        if (!item || typeof item !== 'object') return;
+
+        const lat = item.latitude || item.lat || item.y || item.latitud;
+        const lng = item.longitude || item.lng || item.x || item.longitud;
+
+        if (lat && lng && !isNaN(lat) && !isNaN(lng)) {
+          const markerStyle = this.getUserMarkerStyle(item);
+          const marker = L.circleMarker([lat, lng], markerStyle);
 
           const popupContent = this.generatePopupContent(item, index + 1);
           const popup = this.createCustomPopup(popupContent);
           try {
             marker.bindPopup(popup);
-            console.log(`✅ Bound popup to marker ${index + 1}`);
           } catch (error) {
-            console.warn('Error binding popup to individual marker:', error);
-            // Fallback to simple text popup
-            marker.bindPopup(item.name || item.title || item.label || `Location ${index + 1}`);
+            console.warn('Error binding popup to clustered marker:', error);
+            marker.bindPopup(popupContent);
           }
 
+          this.markerClusterGroup.addLayer(marker);
           this.collectionMarkers.push(marker);
-          console.log(`✅ Added individual marker ${index + 1} at [${lat}, ${lng}]`);
         } else {
-          console.log(`⚠️ Skipping item ${index + 1} - invalid coordinates: lat=${lat}, lng=${lng}`);
+          console.warn(`Skipping item at index ${index} due to invalid coordinates.`);
         }
       });
 
-      this.visibleMarkers = this.collectionMarkers.length;
-      console.log(`✅ Total individual markers added: ${this.collectionMarkers.length}`);
-    },
-
-    createClusteredMarkers(items) {
-      // Simple distance-based clustering
-      const clusters = [];
-      const processed = new Set();
-      
-      items.forEach((item, index) => {
-        if (processed.has(index)) return;
-        
-        const lat = item.latitude || item.lat || item.y || item.latitud;
-        const lng = item.longitude || item.lng || item.x || item.longitud;
-        
-        if (!lat || !lng || isNaN(lat) || isNaN(lng)) return;
-
-        // Find nearby markers within cluster radius
-        const cluster = {
-          center: [lat, lng],
-          items: [item],
-          indices: [index],
-          bounds: this.getClusterBounds(lat, lng)
-        };
-
-        // Check for nearby markers
-        items.forEach((otherItem, otherIndex) => {
-          if (index === otherIndex || processed.has(otherIndex)) return;
-          
-          const otherLat = otherItem.latitude || otherItem.lat || otherItem.y || otherItem.latitud;
-          const otherLng = otherItem.longitude || otherItem.lng || otherItem.x || otherItem.longitud;
-          
-          if (!otherLat || !otherLng || isNaN(otherLat) || isNaN(otherLng)) return;
-
-          const distance = this.getDistanceInKm(lat, lng, otherLat, otherLng);
-          
-          if (distance <= this.clusterRadius) {
-            cluster.items.push(otherItem);
-            cluster.indices.push(otherIndex);
-            processed.add(otherIndex);
-          }
-        });
-
-        clusters.push(cluster);
-        processed.add(index);
-      });
-
-      // Create cluster markers
-      clusters.forEach((cluster, clusterIndex) => {
-        if (cluster.items.length === 1) {
-          // Single marker - show as individual
-          const item = cluster.items[0];
-          const markerStyle = this.getUserMarkerStyle(item);
-          const marker = L.circleMarker(cluster.center, markerStyle).addTo(this.map);
-
-          const popupContent = this.generatePopupContent(item, cluster.indices[0] + 1);
-          const popup = this.createCustomPopup(popupContent);
-          try {
-            marker.bindPopup(popup);
-          } catch (error) {
-            console.warn('Error binding popup to marker:', error);
-            // Fallback to simple text popup
-            marker.bindPopup(item.name || item.title || item.label || `Location ${cluster.indices[0] + 1}`);
-          }
-          this.collectionMarkers.push(marker);
-        } else {
-          // Cluster - show as grouped marker with number inside
-          const clusterCount = cluster.items.length;
-          
-          // Create custom icon with number
-          const icon = L.divIcon({
-            className: 'cluster-icon',
-            html: `<div style="background: #ff6b6b; color: white; border-radius: 50%; width: ${20 + clusterCount * 2}px; height: ${20 + clusterCount * 2}px; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: ${Math.max(10, 12 - clusterCount * 0.5)}px; border: 2px solid #ff8787;">${clusterCount}</div>`,
-            iconSize: [20 + clusterCount * 2, 20 + clusterCount * 2],
-            iconAnchor: [10 + clusterCount, 10 + clusterCount]
-          });
-
-          const markerWithNumber = L.marker(cluster.center, {
-            icon: icon
-          }).addTo(this.map);
-
-          const popupContent = this.generateClusterPopupContent(clusterCount);
-          const popup = this.createCustomPopup(popupContent);
-          try {
-            markerWithNumber.bindPopup(popup);
-          } catch (error) {
-            console.warn('Error binding popup to cluster marker:', error);
-            // Fallback to simple text popup
-            markerWithNumber.bindPopup(`📍 Cluster: ${clusterCount} markers`);
-          }
-          
-          // Add click handler to zoom in
-          markerWithNumber.on('click', () => {
-            this.map.fitBounds(cluster.bounds);
-          });
-
-          this.collectionMarkers.push(markerWithNumber);
-          this.clusterGroups.push({
-            center: cluster.center,
-            count: clusterCount,
-            bounds: cluster.bounds,
-            marker: markerWithNumber
-          });
-        }
-      });
-
-      this.visibleMarkers = this.collectionMarkers.length;
-      console.log(`✅ Total clustered markers added: ${this.collectionMarkers.length} (${clusters.length} clusters)`);
-    },
-
-    getDistanceInKm(lat1, lng1, lat2, lng2) {
-      // Haversine formula to calculate distance between two points in kilometers
-      const R = 6371; // Radius of Earth in kilometers
-      const dLat = this.toRad(lat2 - lat1);
-      const dLng = this.toRad(lng2 - lng1);
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) *
-        Math.sin(dLng / 2) * Math.sin(dLng / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    },
-
-    toRad(value) {
-      return value * Math.PI / 180;
-    },
-
-    getClusterBounds(centerLat, centerLng) {
-      // Create a small bounds around the cluster center
-      const offset = 0.05; // Approximately 5km
-      return [
-        [centerLat - offset, centerLng - offset],
-        [centerLat + offset, centerLng + offset]
-      ];
-    },
-
-    toggleClustering() {
-      console.log(`Clustering ${this.enableClustering ? 'enabled' : 'disabled'}`);
-      this.clusterGroups = [];
-      this.updateCollectionMarkers();
-    },
-
-    updateClustering() {
-      if (this.enableClustering) {
-        console.log(`Cluster radius updated: ${this.clusterRadius}km`);
-        this.clusterGroups = [];
-        this.updateCollectionMarkers();
-      }
+      this.map.addLayer(this.markerClusterGroup);
     },
 
     // Popup customization methods
     generatePopupContent(item, markerNumber) {
       let content = '';
+      
+      // Enhanced sanitization to prevent XSS
+      const sanitize = (str) => {
+        if (!str) return '';
+        return String(str)
+          .replace(/&/g, '&')
+          .replace(/</g, '<')
+          .replace(/>/g, '>')
+          .replace(/"/g, '"')
+          .replace(/'/g, '&#x27;')
+          .replace(/\//g, '&#x2F;');
+      };
       
       // Dynamic field mapping based on configuration
       const userName = this.getUserFieldValue(item, this.userNameField) || item.name || item.title || item.label || `User ${markerNumber}`;
@@ -838,17 +658,31 @@ export default {
       const userStatus = this.showUserStatus ? (this.getUserFieldValue(item, this.userStatusField) || item.status || '') : '';
       const userRole = this.showUserRole ? (this.getUserFieldValue(item, this.userRoleField) || item.role || '') : '';
       
-      switch (this.popupContentTemplate) {
+      const sanitizedName = sanitize(userName);
+      
+      // Validate and sanitize coordinates
+      const lat = Number(item.latitude || item.lat || item.y || item.latitud);
+      const lng = Number(item.longitude || item.lng || item.x || item.longitud);
+      const latDisplay = !isNaN(lat) ? lat.toFixed(4) : 'N/A';
+      const lngDisplay = !isNaN(lng) ? lng.toFixed(4) : 'N/A';
+      
+      const popupWidth = this.content.popupWidth || 250;
+      const popupHeight = this.content.popupHeight || 120;
+      const popupTemplate = this.content.popupContentTemplate || 'default';
+      const showCoords = this.content.showCoordinatesInPopup !== false;
+      const showNumber = this.content.showMarkerNumber !== false;
+      
+      switch (popupTemplate) {
         case 'detailed':
           content = `
-            <div style="min-width: ${this.popupWidth}px; max-width: ${this.popupWidth}px;">
-              <h3 style="margin: 0 0 8px 0; color: #333; font-size: 14px;">${userName}</h3>
-              ${userEmail ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📧 ${userEmail}</p>` : ''}
-              ${userRole ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">👤 ${userRole}</p>` : ''}
-              ${userStatus ? `<p style="margin: 4px 0; font-size: 12px; color: ${userStatus.toLowerCase() === 'online' ? '#00ff00' : '#ff6666'};">🟢 ${userStatus}</p>` : ''}
-              ${this.showCoordinatesInPopup ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📍 Lat: ${item.latitude?.toFixed(4) || item.lat?.toFixed(4) || 'N/A'}</p>` : ''}
-              ${this.showCoordinatesInPopup ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📍 Lng: ${item.longitude?.toFixed(4) || item.lng?.toFixed(4) || 'N/A'}</p>` : ''}
-              ${this.showMarkerNumber ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">Marker #${markerNumber}</p>` : ''}
+            <div style="min-width: ${popupWidth}px; max-width: ${popupWidth}px;">
+              <h3 style="margin: 0 0 8px 0; color: #333; font-size: 14px;">${sanitizedName}</h3>
+              ${userEmail ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">📧 ${sanitize(userEmail)}</p>` : ''}
+              ${userRole ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">👤 ${sanitize(userRole)}</p>` : ''}
+              ${userStatus ? `<p style="margin: 4px 0; font-size: 12px; color: ${userStatus.toLowerCase() === 'online' ? '#00ff00' : '#ff6666'};">🟢 ${sanitize(userStatus)}</p>` : ''}
+              ${showCoords ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">Lat: ${latDisplay}</p>` : ''}
+              ${showCoords ? `<p style="margin: 4px 0; font-size: 12px; color: #666;">Lng: ${lngDisplay}</p>` : ''}
+              ${showNumber ? `<p style="margin: 4px 0; font-size: 11px; color: #999;">Marker #${markerNumber}</p>` : ''}
               <div style="border-top: 1px solid #eee; margin-top: 8px; padding-top: 8px;">
                 <small style="color: #888;">Click to close</small>
               </div>
@@ -858,18 +692,18 @@ export default {
         case 'minimal':
           content = `
             <div style="min-width: 150px;">
-              <p style="margin: 0; font-size: 13px; color: #333; font-weight: 500;">${userName}</p>
-              ${userStatus ? `<p style="margin: 2px 0 0 0; font-size: 11px; color: ${userStatus.toLowerCase() === 'online' ? '#00aa00' : '#aa0000'};">${userStatus}</p>` : ''}
+              <p style="margin: 0; font-size: 13px; color: #333;">${sanitizedName}</p>
+              ${userStatus ? `<p style="margin: 2px 0 0 0; font-size: 11px; color: ${userStatus.toLowerCase() === 'online' ? '#00aa00' : '#aa0000'};">${sanitize(userStatus)}</p>` : ''}
             </div>
           `;
           break;
         default: // 'default'
           content = `
-            <div style="min-width: ${this.popupWidth}px;">
-              <h4 style="margin: 0 0 6px 0; color: #333; font-size: 13px;">${userName}</h4>
-              ${userEmail ? `<p style="margin: 2px 0; font-size: 11px; color: #666;">${userEmail}</p>` : ''}
-              ${userStatus ? `<p style="margin: 2px 0; font-size: 11px; color: ${userStatus.toLowerCase() === 'online' ? '#00aa00' : '#aa0000'};">${userStatus}</p>` : ''}
-              ${this.showCoordinatesInPopup ? `<p style="margin: 3px 0; font-size: 11px; color: #666;">📍 ${item.latitude?.toFixed(3) || item.lat?.toFixed(3) || 'N/A'}, ${item.longitude?.toFixed(3) || item.lng?.toFixed(3) || 'N/A'}</p>` : ''}
+            <div style="min-width: ${popupWidth}px;">
+              <h4 style="margin: 0 0 6px 0; color: #333; font-size: 13px;">${sanitizedName}</h4>
+              ${userEmail ? `<p style="margin: 2px 0; font-size: 11px; color: #666;">${sanitize(userEmail)}</p>` : ''}
+              ${userStatus ? `<p style="margin: 2px 0; font-size: 11px; color: ${userStatus.toLowerCase() === 'online' ? '#00aa00' : '#aa0000'};">${sanitize(userStatus)}</p>` : ''}
+              ${showCoords ? `<p style="margin: 3px 0; font-size: 11px; color: #666;">📍 ${latDisplay}, ${lngDisplay}</p>` : ''}
             </div>
           `;
       }
@@ -910,14 +744,16 @@ export default {
 
     createCustomPopup(content) {
       try {
-        // Create popup with custom dimensions - disable autoPan to prevent animation errors
+        // Create popup with custom dimensions - enable autoPan for better UX
+        const popupWidth = this.content.popupWidth || 250;
+        const popupHeight = this.content.popupHeight || 120;
         return L.popup({
-          maxWidth: this.popupWidth,
-          maxHeight: this.popupHeight,
+          maxWidth: popupWidth,
+          maxHeight: popupHeight,
           className: 'custom-marker-popup',
           closeButton: true,
-          autoPan: false, // Disable auto-pan to prevent _panAnim errors
-          keepInView: false, // Disable to prevent animation conflicts
+          autoPan: true, // Enable auto-pan to ensure popup is visible
+          keepInView: true, // Keep popup in view
           offset: [0, -10] // Offset to position popup above marker
         }).setContent(content);
       } catch (error) {
@@ -927,41 +763,54 @@ export default {
       }
     },
 
-    // Generate 100 dummy markers across Europe (focused on landmass)
-    generateDummyMarkers() {
-      console.log('☢️ Generating 100 dummy markers...');
-      this.dummyMarkers = Array.from({ length: 100 }, (_, i) => ({
-        // Focus on European landmass: 36°N to 71°N, but weighted toward populated areas
-        latitude: 40 + Math.random() * 20, // 40°N to 60°N (core Europe)
-        // Focus on European longitude: -10°W to 30°E (Atlantic to Eastern Europe)
-        longitude: -10 + Math.random() * 40, // -10°E to 30°E
-        name: `Pin ${i + 1}`
-      }));
+    // Initialize user configuration from content
+    initializeUserConfig() {
+      this.userDataSource = this.content.userDataSource || 'collection';
+      this.userNameField = this.content.userNameField || 'name';
+      this.userEmailField = this.content.userEmailField || 'email';
+      this.userStatusField = this.content.userStatusField || 'status';
+      this.userRoleField = this.content.userRoleField || 'role';
+      this.showUserEmail = this.content.showUserEmail !== undefined ? this.content.showUserEmail : true;
+      this.showUserStatus = this.content.showUserStatus !== undefined ? this.content.showUserStatus : true;
+      this.showUserRole = this.content.showUserRole !== undefined ? this.content.showUserRole : false;
       
-      // Add some specific major European cities for better distribution
-      const majorCities = [
-        { latitude: 48.8566, longitude: 2.3522, name: "Paris" },
-        { latitude: 51.5074, longitude: -0.1278, name: "London" },
-        { latitude: 52.5200, longitude: 13.4050, name: "Berlin" },
-        { latitude: 41.9028, longitude: 12.4964, name: "Rome" },
-        { latitude: 40.4168, longitude: -3.7038, name: "Madrid" },
-        { latitude: 59.3293, longitude: 18.0686, name: "Stockholm" },
-        { latitude: 60.1699, longitude: 24.9384, name: "Helsinki" },
-        { latitude: 55.7558, longitude: 37.6173, name: "Moscow" },
-        { latitude: 50.0755, longitude: 14.4378, name: "Prague" },
-        { latitude: 48.1486, longitude: 17.1077, name: "Bratislava" }
-      ];
-      
-      // Replace first 10 markers with major cities
-      majorCities.forEach((city, index) => {
-        if (index < this.dummyMarkers.length) {
-          this.dummyMarkers[index] = city;
-        }
+      console.log('☢️ User configuration initialized:', {
+        userDataSource: this.userDataSource,
+        userNameField: this.userNameField,
+        userEmailField: this.userEmailField,
+        userStatusField: this.userStatusField,
+        userRoleField: this.userRoleField,
+        showUserEmail: this.showUserEmail,
+        showUserStatus: this.showUserStatus,
+        showUserRole: this.showUserRole
       });
+    },
+    
+    // Get user-specific marker styling
+    getUserMarkerStyle(item) {
+      const userStatus = this.getUserFieldValue(item, this.userStatusField) || item.status || '';
+      const isOnline = userStatus.toLowerCase() === 'online';
+      const isUserData = this.userDataSource === 'users';
       
-      console.log('☢️ Generated 100 dummy markers (focused on European landmass):', this.dummyMarkers.slice(0, 5));
-      console.log('☢️ Total dummy markers generated:', this.dummyMarkers.length);
-      console.log('☢️ Dummy markers ready for display');
+      if (isUserData) {
+        // User-specific styling
+        return {
+          color: isOnline ? '#00ff00' : '#ff6666',
+          fillColor: isOnline ? '#00ff00' : '#ff6666',
+          fillOpacity: 0.8,
+          radius: 8,
+          weight: 2
+        };
+      } else {
+        // Default styling for regular collection data
+        return {
+          color: this.content.markerColor || '#666666',
+          fillColor: this.content.markerFillColor || '#999999',
+          fillOpacity: 0.7,
+          radius: 8,
+          weight: 2
+        };
+      }
     },
 
     clearCollectionMarkers() {
@@ -975,77 +824,87 @@ export default {
         }
       });
       this.collectionMarkers = [];
+      if (this.markerClusterGroup && this.map) {
+        this.map.removeLayer(this.markerClusterGroup);
+        this.markerClusterGroup.clearLayers();
+        this.markerClusterGroup = null;
+      }
+      if (this.individualMarkersGroup && this.map) {
+        this.map.removeLayer(this.individualMarkersGroup);
+        this.individualMarkersGroup.clearLayers();
+        this.individualMarkersGroup = null;
+      }
     },
     
-    // Add back user position functionality
     getCurrentPosition() {
       if (!this.map || this.isDestroyed) return;
       
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            if (this.isDestroyed) return;
-            
-            const lat = position.coords.latitude;
-            const lng = position.coords.longitude;
-            
-            if (this.map && !this.isDestroyed) {
-              try {
-                // this.map.setView([lat, lng], 15); // Commented out to keep zoom for markers
-
-                if (this.currentPositionMarker) {
-                  this.map.removeLayer(this.currentPositionMarker);
-                }
-                
-                // Add user status color coding
-                const isOnline = this.content.userStatus === 'online';
-                const markerColor = isOnline ? (this.content.markerColor || '#00ff00') : (this.content.markerColor || '#ff0000');
-                const markerFillColor = isOnline ? (this.content.markerFillColor || '#00ff00') : (this.content.markerFillColor || '#ff0000');
-                
-                // CORE FIX: Use L.circle for real-world accuracy radius
-                this.accuracyCircle = L.circle([lat, lng], {
-                    radius: this.accuracyRadius * 1000, // User-defined accuracy in meters
-                    weight: 2,
-                    color: '#1d9bf0',
-                    fillColor: '#1d9bf0',
-                    fillOpacity: 0.1,
-                }).addTo(this.map);
-
-                // Add a small marker for the center point
-                this.currentPositionMarker = L.circleMarker([lat, lng], {
-                  color: markerColor,
-                  fillColor: markerFillColor,
-                  fillOpacity: 1,
-                  radius: 8, // Small fixed radius for the center point
-                  weight: 2,
-                  stroke: true,
-                }).addTo(this.map).bindPopup('You are here!');
-                
-                // Enhanced geolocation data storage
-                this.userPosition = {
-                  latitude: lat,
-                  longitude: lng,
-                  accuracy: position.coords.accuracy || null // GPS accuracy in meters
-                };
-                
-                console.log('☢️ Enhanced geolocation:', this.userPosition);
-                
-              } catch (error) {
-                console.warn('Error updating map with current position:', error);
-              }
-            }
-          },
-          (error) => {
-            console.warn('Geolocation error:', error.message);
-          },
-          {
-            enableHighAccuracy: true,
-            timeout: 10000,
-            maximumAge: 300000,
-          }
-        );
-      } else {
+      if (!navigator.geolocation) {
         console.warn('Geolocation is not supported by this browser');
+        return;
+      }
+
+      navigator.permissions.query({ name: 'geolocation' }).then(result => {
+        if (result.state === 'denied') {
+          console.warn('Geolocation permission denied');
+          return;
+        }
+        // Proceed with getCurrentPosition
+        this.requestGeolocation();
+      }).catch(err => {
+        console.warn('Permission query failed:', err);
+        // Fallback: try getCurrentPosition anyway with proper callbacks
+        this.requestGeolocation();
+      });
+    },
+    
+    requestGeolocation() {
+      navigator.geolocation.getCurrentPosition(
+        this.handlePositionSuccess,
+        (error) => console.warn('Geolocation error:', error.message),
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+      );
+    },
+
+    handlePositionSuccess(position) {
+      if (this.isDestroyed || !this.map) return;
+
+      const lat = position.coords.latitude;
+      const lng = position.coords.longitude;
+
+      try {
+        if (this.currentPositionMarker) this.map.removeLayer(this.currentPositionMarker);
+        if (this.accuracyCircle) this.map.removeLayer(this.accuracyCircle);
+
+        const isOnline = this.content.userStatus === 'online';
+        const markerColor = isOnline ? (this.content.markerColor || '#00ff00') : (this.content.markerColor || '#ff0000');
+        const markerFillColor = isOnline ? (this.content.markerFillColor || '#00ff00') : (this.content.markerFillColor || '#ff0000');
+        const accuracyRadius = this.content.accuracyRadius || 1;
+
+        this.accuracyCircle = L.circle([lat, lng], {
+            radius: accuracyRadius * 1000, // User-defined accuracy in meters
+            weight: 2,
+            color: '#1d9bf0',
+            fillColor: '#1d9bf0',
+            fillOpacity: 0.1,
+        }).addTo(this.map);
+
+        this.currentPositionMarker = L.circleMarker([lat, lng], {
+          color: markerColor,
+          fillColor: markerFillColor,
+          fillOpacity: 1,
+          radius: 8,
+          weight: 2,
+          stroke: true,
+        }).addTo(this.map).bindPopup('You are here!');
+
+        this.userPosition = {
+          latitude: lat,
+          longitude: lng,
+          accuracy: position.coords.accuracy || null
+        };
+      } catch (error) {
+        console.warn('Error updating map with current position:', error);
       }
     },
     
@@ -1090,71 +949,36 @@ export default {
     updateUserMarkerSize() {
       if (!this.accuracyCircle || !this.map) return;
       
-      let radiusInMeters = this.accuracyRadius * 1000; // Default to km
-      if (this.useMiles) {
-        radiusInMeters = this.accuracyRadius * 1609.34; // Convert miles to meters
+      const accuracyRadius = this.content.accuracyRadius || 1;
+      const useMiles = this.content.useMiles || false;
+      let radiusInMeters = accuracyRadius * 1000; // Default to km
+      if (useMiles) {
+        radiusInMeters = accuracyRadius * 1609.34; // Convert miles to meters
       }
       
       this.accuracyCircle.setRadius(radiusInMeters);
-      console.log(`☢️ User accuracy circle radius updated: ${this.accuracyRadius} ${this.useMiles ? 'miles' : 'km'} (${radiusInMeters}m)`);
     },
-    
-    // Initialize user configuration from content
-    initializeUserConfig() {
-      this.userDataSource = this.content.userDataSource || 'collection';
-      this.userNameField = this.content.userNameField || 'name';
-      this.userEmailField = this.content.userEmailField || 'email';
-      this.userStatusField = this.content.userStatusField || 'status';
-      this.userRoleField = this.content.userRoleField || 'role';
-      this.showUserEmail = this.content.showUserEmail !== undefined ? this.content.showUserEmail : true;
-      this.showUserStatus = this.content.showUserStatus !== undefined ? this.content.showUserStatus : true;
-      this.showUserRole = this.content.showUserRole !== undefined ? this.content.showUserRole : false;
-      
-      console.log('☢️ User configuration initialized:', {
-        userDataSource: this.userDataSource,
-        userNameField: this.userNameField,
-        userEmailField: this.userEmailField,
-        userStatusField: this.userStatusField,
-        userRoleField: this.userRoleField,
-        showUserEmail: this.showUserEmail,
-        showUserStatus: this.showUserStatus,
-        showUserRole: this.showUserRole
-      });
+
+    toggleClustering() {
+      console.log(`Clustering ${this.enableClustering ? 'enabled' : 'disabled'}`);
+      this.clusterGroups = [];
+      this.updateCollectionMarkers();
     },
-    
-    // Get user-specific marker styling
-    getUserMarkerStyle(item) {
-      const userStatus = this.getUserFieldValue(item, this.userStatusField) || item.status || '';
-      const isOnline = userStatus.toLowerCase() === 'online';
-      const isUserData = this.userDataSource === 'users';
-      
-      if (isUserData) {
-        // User-specific styling
-        return {
-          color: isOnline ? '#00ff00' : '#ff6666',
-          fillColor: isOnline ? '#00ff00' : '#ff6666',
-          fillOpacity: 0.8,
-          radius: 8,
-          weight: 2
-        };
-      } else {
-        // Default styling for regular collection data
-        return {
-          color: '#666666',
-          fillColor: '#999999',
-          fillOpacity: 0.7,
-          radius: 8,
-          weight: 2
-        };
+
+    updateClustering() {
+      if (this.enableClustering) {
+        console.log(`Cluster radius updated: ${this.clusterRadius}km`);
+        this.clusterGroups = [];
+        this.updateCollectionMarkers();
       }
     },
-    
+
     cleanup() {
       this.isDestroyed = true;
-      
-      if (this.initTimeout) {
-        clearTimeout(this.initTimeout);
-        this.initTimeout = null;
+
+      if (this.resizeObserver) {
+        this.resizeObserver.disconnect();
+        this.resizeObserver = null;
       }
       
       if (this.zoomHandler && this.map) {
@@ -1201,23 +1025,65 @@ export default {
       this.zoomHandler = () => {
         if (!this.isDestroyed) {
           this.currentZoom = this.map.getZoom();
-          console.log(`☢️ ZOOM CHANGED: ${this.currentZoom}`);
         }
       };
       
       this.map.on('zoomend', this.zoomHandler);
     },
+
+    // Add missing updateMap method
+    updateMap() {
+      if (this.map && !this.isDestroyed) {
+        const lat = this.content.latitude || 50;
+        const lng = this.content.longitude || 10;
+        const zoom = this.content.zoom || 13;
+        this.map.setView([lat, lng], zoom);
+      }
+    },
+
+    // Generate dummy markers for testing
+    generateDummyMarkers() {
+      console.log('☢️ Generating 100 dummy markers...');
+      this.dummyMarkers = Array.from({ length: 100 }, (_, i) => ({
+        // Focus on European landmass: 36°N to 71°N, but weighted toward populated areas
+        latitude: 40 + Math.random() * 20, // 40°N to 60°N (core Europe)
+        // Focus on European longitude: -10°W to 30°E (Atlantic to Eastern Europe)
+        longitude: -10 + Math.random() * 40, // -10°E to 30°E
+        name: `Pin ${i + 1}`
+      }));
+      
+      // Add some specific major European cities for better distribution
+      const majorCities = [
+        { latitude: 48.8566, longitude: 2.3522, name: "Paris" },
+        { latitude: 51.5074, longitude: -0.1278, name: "London" },
+        { latitude: 52.5200, longitude: 13.4050, name: "Berlin" },
+        { latitude: 41.9028, longitude: 12.4964, name: "Rome" },
+        { latitude: 40.4168, longitude: -3.7038, name: "Madrid" },
+        { latitude: 59.3293, longitude: 18.0686, name: "Stockholm" },
+        { latitude: 60.1699, longitude: 24.9384, name: "Helsinki" },
+        { latitude: 55.7558, longitude: 37.6173, name: "Moscow" },
+        { latitude: 50.0755, longitude: 14.4378, name: "Prague" },
+        { latitude: 48.1486, longitude: 17.1077, name: "Bratislava" }
+      ];
+      
+      // Replace first 10 markers with major cities
+      majorCities.forEach((city, index) => {
+        if (index < this.dummyMarkers.length) {
+          this.dummyMarkers[index] = city;
+        }
+      });
+      
+      console.log('☢️ Generated 100 dummy markers (focused on European landmass):', this.dummyMarkers.slice(0, 5));
+      console.log('☢️ Total dummy markers generated:', this.dummyMarkers.length);
+      console.log('☢️ Dummy markers ready for display');
+    },
   },
   watch: {
-    'content.latitude'() {
+    'content.latitude': 'updateMap',
+    'content.longitude': 'updateMap',
+    'content.zoom'(newZoom) {
       this.updateMap();
-    },
-    'content.longitude'() {
-      this.updateMap();
-    },
-    'content.zoom'() {
-      this.updateMap();
-      this.currentZoom = this.content.zoom || 13;
+      this.currentZoom = newZoom || 13;
     },
     'content.minZoom'() {
       if (this.map && !this.isDestroyed) {
@@ -1230,28 +1096,69 @@ export default {
       }
     },
     'content.showCollectionMarkers'() {
-      this.$nextTick(() => {
+      if (this.map && !this.isDestroyed) {
         this.updateCollectionMarkers();
-      });
+      }
     },
-    'content.collectionData'() {
-      this.$nextTick(() => {
+    'content.collectionData': {
+      handler() {
+        if (this.map && !this.isDestroyed) {
+          this.updateCollectionMarkers();
+        }
+      },
+      deep: true
+    },
+    'content.enableClustering'() {
+      if (this.map && !this.isDestroyed) {
         this.updateCollectionMarkers();
-      });
+      }
     },
-    'content.showDebug'() {
-      this.showDebug = this.content.showDebug || false;
+    'content.clusterRadius'() {
+      if (this.content.enableClustering && this.map && !this.isDestroyed) {
+        this.updateCollectionMarkers();
+      }
+    },
+    'content.mapType'() {
+      this.setupTileLayer();
     },
     'content.accuracyRadius'() {
-      this.accuracyRadius = this.content.accuracyRadius || 1;
-      this.accuracySlider = this.accuracyRadius;
       if (this.currentPositionMarker && this.map) {
         this.updateUserMarkerSize();
       }
     },
     'content.useMiles'() {
-      this.useMiles = this.content.useMiles !== undefined ? this.content.useMiles : false;
-      console.log(`☢️ Unit system changed to: ${this.useMiles ? 'miles' : 'kilometers'}`);
+      if (this.currentPositionMarker && this.map) {
+        this.updateUserMarkerSize();
+      }
+    },
+    'content.markerColor'() {
+      if (this.content.enableClustering) {
+        this.updateCollectionMarkers();
+      } else if (this.individualMarkersGroup) {
+        this.individualMarkersGroup.setStyle({ color: this.content.markerColor || '#666666' });
+      }
+    },
+    'content.markerFillColor'() {
+      if (this.content.enableClustering) {
+        this.updateCollectionMarkers();
+      } else if (this.individualMarkersGroup) {
+        this.individualMarkersGroup.setStyle({ fillColor: this.content.markerFillColor || '#999999' });
+      }
+    },
+    'content.popupWidth'() {
+      // Popup width changed - markers will use new width on next popup open
+    },
+    'content.popupHeight'() {
+      // Popup height changed - markers will use new height on next popup open
+    },
+    'content.popupContentTemplate'() {
+      // Popup template changed - markers will use new template on next popup open
+    },
+    'content.showCoordinatesInPopup'() {
+      // Show coordinates setting changed - markers will use new setting on next popup open
+    },
+    'content.showMarkerNumber'() {
+      // Show marker number setting changed - markers will use new setting on next popup open
     },
     // New user data configuration watchers
     'content.userDataSource'() {
@@ -1295,43 +1202,85 @@ export default {
   width: 100%;
   height: 100%;
   position: relative;
-  overflow: hidden; // Prevent any overflow issues
+  /* Force maximum event priority */
+  z-index: 9999 !important;
 }
 
-// Ensure the map container has proper styling for Leaflet
 .leaflet-map-container {
-  width: 100%;
-  height: 100%;
-  position: relative;
-  outline: none; // Remove focus outline that might interfere
-  -webkit-user-select: none; // Prevent text selection interference
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-  cursor: grab; // Show grab cursor for dragging
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+  
+  /* CRITICAL: Maximum z-index to override WeWeb */
+  z-index: 10000 !important;
+  
+  /* Remove ALL potentially blocking CSS */
+  pointer-events: auto !important;
+  touch-action: pan-x pan-y !important;
+  user-select: none !important;
+  
+  /* Ensure cursor shows correctly */
+  cursor: grab !important;
+  
+  /* Force focus capability */
+  outline: 2px solid transparent !important;
+  outline-offset: -2px !important;
 }
 
-.leaflet-map-container:active {
-  cursor: grabbing; // Show grabbing cursor during drag
+/* Style for leaflet.markercluster */
+.marker-cluster-small, .marker-cluster-medium, .marker-cluster-large {
+	background-color: rgba(255, 107, 107, 0.6) !important;
+}
+.marker-cluster-small div, .marker-cluster-medium div, .marker-cluster-large div {
+	background-color: rgba(255, 107, 107, 1) !important;
 }
 
-// Ensure Leaflet controls work properly
+/* Global overrides for Leaflet with maximum priority */
 .leaflet-container {
-  cursor: grab;
+  cursor: grab !important;
+  pointer-events: auto !important;
+  touch-action: pan-x pan-y !important;
+  z-index: 10001 !important;
+  position: relative !important;
 }
+
+/* CRITICAL FIX: Ensure the underlying panes that handle drag events are interactive */
+.leaflet-pane,
+.leaflet-tile-container {
+  pointer-events: auto !important;
+}
+
 
 .leaflet-dragging .leaflet-container {
-  cursor: grabbing;
+  cursor: grabbing !important;
 }
 
-// Fix for WeWeb event interference
-.leaflet-map-container * {
-  pointer-events: auto !important; // Ensure all Leaflet elements can receive events
+/* Force enable all leaflet interaction elements with proper hierarchy */
+.leaflet-control-zoom,
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out,
+.leaflet-control-attribution,
+.leaflet-popup,
+.leaflet-marker-icon,
+.leaflet-tile,
+.leaflet-control-locate a {
+  pointer-events: auto !important;
+  z-index: 10002 !important;
+  position: relative !important;
 }
 
-// Prevent WeWeb from interfering with map interactions
-.leaflet-map-container {
-  touch-action: none; // Prevent touch scrolling interference
+/* Ensure zoom buttons are always clickable */
+.leaflet-control-zoom a {
+  pointer-events: auto !important;
+  cursor: pointer !important;
+  text-decoration: none !important;
+}
+
+/* Override any WeWeb styles that might interfere - but preserve zoom functionality */
+.openstreetmap-element .leaflet-control-zoom,
+.leaflet-map-container .leaflet-control-zoom {
+  pointer-events: auto !important;
+  z-index: 10003 !important;
 }
 
 // Map type selector (moved under clustering controls)

@@ -1,107 +1,84 @@
 export default {
   editor: {
     label: {
-      en: "OpenStreetMap",
+      en: 'OpenStreetMap',
+      fr: 'OpenStreetMap',
+    },
+    icon: 'map',
+    defaultStyle: {
+      width: '100%',
+      height: '100%',
     },
   },
   properties: {
     latitude: {
-      label: {
-        en: "Latitude",
-      },
-      type: "Number",
-      defaultValue: 51.505,
+      label: { en: 'Initial Latitude' },
+      type: 'Number',
+      defaultValue: 50.0,
+      section: 'settings',
+      bindable: true,
     },
     longitude: {
-      label: {
-        en: "Longitude",
-      },
-      type: "Number",
-      defaultValue: -0.09,
+      label: { en: 'Initial Longitude' },
+      type: 'Number',
+      defaultValue: 10.0,
+      section: 'settings',
+      bindable: true,
     },
     zoom: {
-      label: {
-        en: "Zoom Level",
-      },
-      type: "Number",
-      defaultValue: 13,
-      min: 1,
-      max: 20,
+      label: { en: 'Initial Zoom' },
+      type: 'Number',
+      defaultValue: 3,
+      section: 'settings',
+      bindable: true,
     },
     minZoom: {
-      label: {
-        en: "Minimum Zoom Level",
-      },
-      type: "Number",
+      label: { en: 'Min Zoom Level' },
+      type: 'Number',
       defaultValue: 1,
-      min: 1,
-      max: 20,
+      section: 'advanced',
+      bindable: true,
     },
     maxZoom: {
-      label: {
-        en: "Maximum Zoom Level",
-      },
-      type: "Number",
+      label: { en: 'Max Zoom Level' },
+      type: 'Number',
       defaultValue: 20,
-      min: 1,
-      max: 20,
+      section: 'advanced',
+      bindable: true,
     },
     markerColor: {
-      label: {
-        en: "Marker Border Color",
-      },
-      type: "Color",
-      defaultValue: "#3388ff",
+      label: { en: 'Marker Border Color' },
+      type: 'Color',
+      defaultValue: '#666666',
+      section: 'styling',
+      bindable: true,
     },
     markerFillColor: {
-      label: {
-        en: "Marker Fill Color",
-      },
-      type: "Color",
-      defaultValue: "#3388ff",
+      label: { en: 'Marker Fill Color' },
+      type: 'Color',
+      defaultValue: '#999999',
+      section: 'styling',
+      bindable: true,
     },
     userStatus: {
-      label: {
-        en: "User Status",
-      },
-      type: "Select",
-      defaultValue: "online",
-      bindable: true,
+      label: { en: 'User Status (for color)' },
+      type: 'TextSelect',
       options: {
-        items: [
-          { value: "online", label: { en: "Online" } },
-          { value: "offline", label: { en: "Offline" } }
-        ]
-      }
-    },
-    showCollectionMarkers: {
-      label: {
-        en: "Show Collection Markers",
+        options: [
+          { value: 'online', label: { en: 'Online' } },
+          { value: 'offline', label: { en: 'Offline' } },
+        ],
       },
-      type: "OnOff",
-      defaultValue: false,
+      defaultValue: 'online',
+      section: 'geolocation',
       bindable: true,
     },
     collectionData: {
-      label: {
-        en: "Collection Data (Geolocations)",
-      },
-      type: "Collection",
+      label: { en: 'Marker Data' },
+      type: 'Array',
+      section: 'settings',
       bindable: true,
-    },
-    showZoomLevel: {
-      label: {
-        en: "Show zoom level",
-      },
-      type: "OnOff",
-      defaultValue: true,
-    },
-    showDebug: {
-      label: {
-        en: "Show debug panel",
-      },
-      type: "OnOff",
-      defaultValue: false,
+      defaultValue: [],
     },
     // User-specific properties for database integration
     userDataSource: {
@@ -176,22 +153,120 @@ export default {
       bindable: true,
     },
     accuracyRadius: {
-      label: {
-        en: "User accuracy radius (km)",
-      },
-      type: "Number",
-      defaultValue: 20,
-      min: 1,
-      max: 80,
+      label: { en: 'Accuracy Radius' },
+      type: 'Number',
+      defaultValue: 1,
+      section: 'geolocation',
       bindable: true,
     },
     useMiles: {
-      label: {
-        en: "Use miles for distance",
-      },
-      type: "OnOff",
+      label: { en: 'Use Miles for Radius' },
+      type: 'OnOff',
       defaultValue: false,
+      section: 'geolocation',
       bindable: true,
+    },
+    // Map Controls Section
+    mapType: {
+      label: { en: 'Map Type' },
+      type: 'TextSelect',
+      options: {
+        options: [
+          { value: 'osm', label: { en: 'Standard' } },
+          { value: 'satellite', label: { en: 'Satellite' } },
+          { value: 'terrain', label: { en: 'Terrain' } },
+          { value: 'dark', label: { en: 'Dark Mode' } },
+          { value: 'light', label: { en: 'Light Mode' } },
+        ],
+      },
+      defaultValue: 'osm',
+      section: 'settings',
+      bindable: true,
+    },
+    enableLocateButton: {
+      label: { en: 'Enable "Center on Me" Button' },
+      type: 'OnOff',
+      defaultValue: true,
+      section: 'Map Controls',
+      bindable: true,
+    },
+    // Marker Clustering Section
+    enableClustering: {
+      label: { en: 'Enable Clustering' },
+      type: 'OnOff',
+      defaultValue: false,
+      section: 'settings',
+      bindable: true,
+    },
+    // Popup Customization Section
+    popupWidth: {
+      label: { en: 'Popup Width (px)' },
+      type: 'Number',
+      defaultValue: 250,
+      section: 'styling',
+      bindable: true,
+    },
+    popupHeight: {
+      label: { en: 'Popup Max Height (px)' },
+      type: 'Number',
+      defaultValue: 120,
+      section: 'styling',
+      bindable: true,
+    },
+    popupContentTemplate: {
+      label: { en: 'Popup Template' },
+      type: 'TextSelect',
+      options: {
+        options: [
+          { value: 'default', label: { en: 'Default' } },
+          { value: 'detailed', label: { en: 'Detailed' } },
+          { value: 'minimal', label: { en: 'Minimal' } },
+        ],
+      },
+      defaultValue: 'default',
+      section: 'styling',
+      bindable: true,
+    },
+    showCoordinatesInPopup: {
+      label: { en: 'Show Coordinates in Popup' },
+      type: 'OnOff',
+      defaultValue: true,
+      section: 'styling',
+      bindable: true,
+    },
+    showMarkerNumber: {
+      label: { en: 'Show Marker Number' },
+      type: 'OnOff',
+      defaultValue: false,
+      section: 'styling',
+      bindable: true,
+    },
+  },
+  // This part maps the properties to the `content` object in your Vue component
+  triggerEvents: [
+    { name: 'update:content', label: { en: 'On Content Update' }, event: { content: '' } },
+  ],
+  mappings: {
+    content: {
+      latitude: 'latitude',
+      longitude: 'longitude',
+      zoom: 'zoom',
+      mapType: 'mapType',
+      collectionData: 'collectionData',
+      enableLocateButton: 'enableLocateButton',
+      enableClustering: 'enableClustering',
+      markerColor: 'markerColor',
+      markerFillColor: 'markerFillColor',
+      popupWidth: 'popupWidth',
+      popupHeight: 'popupHeight',
+      popupContentTemplate: 'popupContentTemplate',
+      showCoordinatesInPopup: 'showCoordinatesInPopup',
+      showMarkerNumber: 'showMarkerNumber',
+      userStatus: 'userStatus',
+      accuracyRadius: 'accuracyRadius',
+      useMiles: 'useMiles',
+      minZoom: 'minZoom',
+      maxZoom: 'maxZoom',
     },
   },
 };
