@@ -113,14 +113,48 @@ export default {
       }
     })
 
+    const calculateTemperatureRanges = () => {
+      if (selectedZones.value.length === 0) {
+        setTempRangeF('')
+        setTempRangeC('')
+        return
+      }
+
+      const selectedZoneData = selectedZones.value.map(zoneId =>
+        zones.find(z => z.id === zoneId)
+      ).filter(Boolean)
+
+      if (selectedZoneData.length === 0) return
+
+      // Extract temperature numbers from ranges
+      const tempRanges = selectedZoneData.map(zone => {
+        const fRange = zone.tempF.split(' to ').map(t => parseFloat(t))
+        const cRange = zone.tempC.split(' to ').map(t => parseFloat(t))
+        return { fMin: fRange[0], fMax: fRange[1], cMin: cRange[0], cMax: cRange[1] }
+      })
+
+      // Find overall min and max
+      const fMin = Math.min(...tempRanges.map(r => r.fMin))
+      const fMax = Math.max(...tempRanges.map(r => r.fMax))
+      const cMin = Math.min(...tempRanges.map(r => r.cMin))
+      const cMax = Math.max(...tempRanges.map(r => r.cMax))
+
+      // Set the temperature ranges
+      setTempRangeF(`${fMin} to ${fMax}`)
+      setTempRangeC(`${cMin} to ${cMax}`)
+    }
+
     const handleValueChange = (newValue) => {
       if (internalValue.value !== newValue) {
         setInternalValue(newValue || '')
+        calculateTemperatureRanges()
         emit('trigger-event', {
           name: 'zone-selected',
           event: {
             selectedZones: [...selectedZones.value],
-            selectedValue: newValue || ''
+            selectedValue: newValue || '',
+            tempRangeF: tempRangeF.value,
+            tempRangeC: tempRangeC.value
           }
         })
       }
@@ -140,6 +174,8 @@ export default {
 
     const resetSelection = () => {
       selectedZones.value = []
+      setTempRangeF('')
+      setTempRangeC('')
 
       // Trigger the value change handler
       handleValueChange('')
@@ -148,7 +184,9 @@ export default {
         name: 'selection-reset',
         event: {
           selectedZones: [],
-          selectedValue: ''
+          selectedValue: '',
+          tempRangeF: '',
+          tempRangeC: ''
         }
       })
     }
@@ -289,6 +327,20 @@ export default {
       defaultValue: '',
     })
 
+    const { value: tempRangeF, setValue: setTempRangeF } = wwLib.wwVariable.useComponentVariable({
+      uid: props.uid,
+      name: 'tempRangeF',
+      type: 'string',
+      defaultValue: '',
+    })
+
+    const { value: tempRangeC, setValue: setTempRangeC } = wwLib.wwVariable.useComponentVariable({
+      uid: props.uid,
+      name: 'tempRangeC',
+      type: 'string',
+      defaultValue: '',
+    })
+
     // MANDATORY: Watch for initialValue changes and reset internal variable
     watch(() => props.content?.initialValue, (newValue) => {
       if (newValue !== undefined && newValue !== selectedValue.value) {
@@ -371,6 +423,8 @@ export default {
       selectedZones,
       selectedValue,
       internalValue,
+      tempRangeF,
+      tempRangeC,
       toggleZone,
       resetSelection,
       getZoneStyle,
