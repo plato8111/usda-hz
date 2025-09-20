@@ -406,11 +406,11 @@ export default {
   color: #666;
 
   &:first-child {
-    text-align: left;
+    text-align: right;
   }
 
   &:last-child {
-    text-align: right;
+    text-align: left;
   }
 }
 
@@ -463,11 +463,11 @@ export default {
   line-height: 1.2;
 
   &:first-child {
-    text-align: left;
+    text-align: right;
   }
 
   &:last-child {
-    text-align: right;
+    text-align: left;
   }
 }
 
