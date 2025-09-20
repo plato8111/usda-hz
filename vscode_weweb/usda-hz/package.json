@@ -1,0 +1,11 @@
+{
+  "name": "usda-hz",
+  "version": "0.0.1",
+  "scripts": {
+    "build": "weweb build --name usda-hz",
+    "serve": "weweb serve"
+  },
+  "devDependencies": {
+    "@weweb/cli": "latest"
+  }
+}
