@@ -24,9 +24,9 @@
           @click="toggleZone(zone.id)"
         >
           <div class="zone-info" :style="getZoneInfoStyle()">
-            <div class="zone-temp" :style="getTempTextStyle()">{{ zone.tempF }}</div>
+            <div class="zone-temp" :style="getTempTextStyle(true)">{{ zone.tempF }}</div>
             <div class="zone-label" :style="getZoneLabelStyle(zone)">{{ zone.id }}</div>
-            <div class="zone-temp" :style="getTempTextStyle()">{{ zone.tempC }}</div>
+            <div class="zone-temp" :style="getTempTextStyle(false)">{{ zone.tempC }}</div>
           </div>
         </div>
       </div>
@@ -208,7 +208,7 @@ export default {
           backgroundColor: zone.color,
           opacity: !hasSelections || isInRange ? 1 : 0.3,
           color: '#000000',
-          fontWeight: '500',
+          fontWeight: '300',
           minHeight: '18px',
           display: 'flex',
           alignItems: 'center',
@@ -223,7 +223,7 @@ export default {
         return {
           backgroundColor: 'transparent',
           color: '#000000',
-          fontWeight: '500',
+          fontWeight: '300',
           minHeight: '18px',
           display: 'flex',
           alignItems: 'center',
@@ -250,14 +250,33 @@ export default {
       }
     }
 
-    const getTempTextStyle = () => {
-      return {
+    const getTempTextStyle = (isFirst = false) => {
+      const baseStyle = {
         color: '#000000',
         minHeight: '22px',
-        display: 'flex',
-        alignItems: 'center',
         fontWeight: '400',
-        fontSize: '12px'
+        fontSize: '12px',
+        width: '100%',
+        padding: '0 4px',
+        display: 'flex',
+        alignItems: 'center'
+      }
+
+      if (isFirst) {
+        // Temp F - align right
+        return {
+          ...baseStyle,
+          justifyContent: 'flex-end',
+          paddingRight: '8px'
+        }
+      } else {
+        // Temp C - align left
+        return {
+          ...baseStyle,
+          justifyContent: 'flex-start',
+          paddingLeft: '4px',
+          paddingRight: '0px'
+        }
       }
     }
 
@@ -461,14 +480,6 @@ export default {
   font-size: 11px;
   font-weight: 400;
   line-height: 1.2;
-
-  &:first-child {
-    text-align: right;
-  }
-
-  &:last-child {
-    text-align: left;
-  }
 }
 
 .zone-label {
