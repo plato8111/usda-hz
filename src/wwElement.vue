@@ -32,8 +32,9 @@
       </div>
     </div>
 
-    <div v-if="content?.showOutput && selectedValue" class="selected-output" :style="outputStyle" @click="resetSelection">
-      Selected: {{ selectedValue }}
+    <div v-if="content?.showOutput" class="selected-output" :style="getOutputStyle()" @click="resetSelection">
+      <span v-if="selectedValue">Selected: {{ selectedValue }}</span>
+      <span v-else>&nbsp;</span>
     </div>
   </div>
 </template>
@@ -332,6 +333,16 @@ export default {
       borderRadius: props.content?.borderRadius || '6px',
     }))
 
+    const getOutputStyle = () => {
+      const baseStyle = outputStyle.value
+      return {
+        ...baseStyle,
+        opacity: selectedValue.value ? 1 : 0,
+        cursor: selectedValue.value ? 'pointer' : 'default',
+        minHeight: '44px', // Reserve consistent height
+      }
+    }
+
     return {
       zones,
       selectedZones,
@@ -343,6 +354,7 @@ export default {
       getZoneLabelStyle,
       getZoneInfoStyle,
       getTempTextStyle,
+      getOutputStyle,
       isZoneInRange,
       componentStyle,
       gridStyle,
