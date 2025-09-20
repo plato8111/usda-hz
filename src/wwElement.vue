@@ -340,6 +340,10 @@ export default {
         opacity: selectedValue.value ? 1 : 0,
         cursor: selectedValue.value ? 'pointer' : 'default',
         minHeight: '44px', // Reserve consistent height
+        width: props.content?.maxWidth || '250px', // Match component width
+        maxWidth: '100%',
+        margin: '16px auto 0 auto', // Center and add top margin
+        boxSizing: 'border-box'
       }
     }
 
