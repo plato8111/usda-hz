@@ -22,6 +22,22 @@ export default {
       propertyHelp: 'Set initial zone selection. Use single zone like "6a" or range like "6a-7a"'
       /* wwEditor:end */
     },
+    selectionEnabled: {
+      label: {
+        en: "Enable Selection",
+      },
+      type: "OnOff",
+      section: "settings",
+      defaultValue: true,
+      bindable: true,
+      /* wwEditor:start */
+      bindingValidation: {
+        type: 'boolean',
+        tooltip: 'Enable/disable zone selection functionality'
+      },
+      propertyHelp: 'When disabled, component becomes read-only for zone lookup. Initial value will be highlighted with a subtle frame.'
+      /* wwEditor:end */
+    },
     showOutput: {
       label: {
         en: "Show Selected Output",
@@ -30,6 +46,7 @@ export default {
       section: "settings",
       defaultValue: true,
       bindable: true,
+      hidden: content => !content?.selectionEnabled,
       /* wwEditor:start */
       bindingValidation: {
         type: 'boolean',

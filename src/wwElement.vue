@@ -17,11 +17,12 @@
           :key="zone.id"
           class="zone-item"
           :class="{
-            'selected': isZoneInRange(zone.id),
-            'unselected': selectedZones.length > 0 && !isZoneInRange(zone.id)
+            'selected': content?.selectionEnabled && isZoneInRange(zone.id),
+            'unselected': content?.selectionEnabled && selectedZones.length > 0 && !isZoneInRange(zone.id),
+            'initial-highlight': !content?.selectionEnabled && isInitialZone(zone.id)
           }"
           :style="getZoneStyle(zone)"
-          @click="toggleZone(zone.id)"
+          @click="content?.selectionEnabled ? toggleZone(zone.id) : null"
         >
           <div class="zone-info" :style="getZoneInfoStyle()">
             <div class="zone-temp" :style="getTempTextStyle(true)">{{ zone.tempF }}</div>
@@ -32,7 +33,7 @@
       </div>
     </div>
 
-    <div v-if="content?.showOutput" class="selected-output" :style="getOutputStyle()" @click="resetSelection">
+    <div v-if="content?.selectionEnabled && content?.showOutput" class="selected-output" :style="getOutputStyle()" @click="resetSelection">
       <span v-if="selectedValue">Selected: {{ selectedValue }}</span>
       <span v-else>&nbsp;</span>
     </div>
@@ -217,34 +218,62 @@ export default {
       return currentIndex >= firstIndex && currentIndex <= lastIndex
     }
 
+    const isInitialZone = (zoneId) => {
+      const initialValue = props.content?.initialValue
+      if (!initialValue) return false
+
+      if (initialValue.includes('-')) {
+        const [start, end] = initialValue.split('-')
+        const startIndex = zones.findIndex(z => z.id === start)
+        const endIndex = zones.findIndex(z => z.id === end)
+        const currentIndex = zones.findIndex(z => z.id === zoneId)
+        return currentIndex >= startIndex && currentIndex <= endIndex
+      } else {
+        return zoneId === initialValue
+      }
+    }
+
     const getZoneStyle = (zone) => {
+      const selectionEnabled = props.content?.selectionEnabled !== false
       const hasSelections = selectedZones.value.length > 0
       const isInRange = isZoneInRange(zone.id)
+      const isInitial = isInitialZone(zone.id)
       const colorStyle = props.content?.colorStyle || 'zone-only'
+
+      const baseStyle = {
+        cursor: selectionEnabled ? 'pointer' : 'default'
+      }
+
+      // Handle disabled mode with initial value highlight
+      if (!selectionEnabled && isInitial) {
+        baseStyle.border = '4px solid #000000'
+        baseStyle.borderRadius = '4px'
+      }
 
       if (colorStyle === 'full-row') {
         return {
+          ...baseStyle,
           backgroundColor: zone.color,
-          opacity: !hasSelections || isInRange ? 1 : 0.3,
-          cursor: 'pointer'
+          opacity: selectionEnabled ? (!hasSelections || isInRange ? 1 : 0.3) : 1
         }
       } else {
         return {
-          backgroundColor: 'transparent',
-          cursor: 'pointer'
+          ...baseStyle,
+          backgroundColor: 'transparent'
         }
       }
     }
 
     const getZoneLabelStyle = (zone) => {
+      const selectionEnabled = props.content?.selectionEnabled !== false
       const hasSelections = selectedZones.value.length > 0
       const isInRange = isZoneInRange(zone.id)
+      const isInitial = isInitialZone(zone.id)
       const colorStyle = props.content?.colorStyle || 'zone-only'
 
       if (colorStyle === 'zone-only') {
-        return {
+        const baseStyle = {
           backgroundColor: zone.color,
-          opacity: !hasSelections || isInRange ? 1 : 0.3,
           color: '#000000',
           fontWeight: '300',
           minHeight: '18px',
@@ -257,6 +286,14 @@ export default {
           borderRadius: '2px',
           border: '1px solid rgba(0,0,0,0.1)'
         }
+
+        if (selectionEnabled) {
+          baseStyle.opacity = !hasSelections || isInRange ? 1 : 0.3
+        } else {
+          baseStyle.opacity = 1
+        }
+
+        return baseStyle
       } else {
         return {
           backgroundColor: 'transparent',
@@ -371,6 +408,7 @@ export default {
     // MANDATORY: Watch ALL properties that affect component rendering
     watch(() => [
       props.content?.colorStyle,
+      props.content?.selectionEnabled,
       props.content?.showOutput,
       props.content?.maxWidth,
       props.content?.borderRadius,
@@ -433,6 +471,7 @@ export default {
       getTempTextStyle,
       getOutputStyle,
       isZoneInRange,
+      isInitialZone,
       componentStyle,
       gridStyle,
       innerContainerStyle,
